@@ -1,16 +1,11 @@
 # TODO — Book Scanner
 
-## Code drift from conversation log
+## Completed
 
-The `scan_book.py` in the repo differs from the version documented in `bookscanner-conversation.md`:
+- ~~**Code drift from conversation log**~~: resolved — resolution lowered to 640x480, grayscale decode, window creation order fixed, frame skipping (every 3rd frame), audio feedback (terminal bell)
+- ~~**Google Books fallback**~~: `scan_book.py` now falls back to Google Books API when Open Library has no result (requires API key in `.env`)
 
-- **Resolution**: repo uses `(1280, 720)`, conversation settled on `(640, 480)`
-- **Grayscale decode**: conversation version converts to grayscale before `pyzbar.decode(gray)` — repo decodes the full RGB frame directly
-- **Window creation order**: repo calls `cv2.namedWindow` *after* `cv2.imshow` (should be before, as in the conversation version)
-
-These should be reconciled — the conversation version appears to be the more refined one.
-
-## Next steps (from conversation plan)
+## Next steps
 
 ### 1. SQLite storage
 - Add a local SQLite database to persist scanned books

@@ -1,6 +1,6 @@
 # Book Scanner
 
-ISBN barcode scanner for Raspberry Pi with AI Camera (IMX500). Scans book barcodes, decodes them with pyzbar, and fetches metadata (title, authors, publisher, year, pages) from the Open Library API.
+ISBN barcode scanner for Raspberry Pi with AI Camera (IMX500). Scans book barcodes, decodes them with pyzbar, and fetches metadata (title, authors, publisher, year, pages) from Open Library and Google Books APIs.
 
 ## Requirements
 
@@ -19,10 +19,18 @@ sudo apt install -y python3-picamera2 libzbar0
 ```bash
 python3 -m venv .venv --system-site-packages
 source .venv/bin/activate
-pip install opencv-python pyzbar requests setuptools
+pip install opencv-python pyzbar requests setuptools python-dotenv
 ```
 
 > The venv must use `--system-site-packages` so that the apt-installed `picamera2` is visible.
+
+### Google Books API key (optional)
+
+`scan_book.py` uses Open Library as primary source and Google Books as fallback. To enable the fallback, get a free API key from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) (enable the Books API), then create a `.env` file:
+
+```bash
+echo 'GOOGLE_BOOKS_API_KEY=your_key_here' > .env
+```
 
 ## Usage
 

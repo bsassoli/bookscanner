@@ -13,17 +13,21 @@ Utilizzo:
     python3 scan_book.py --manual  # inserimento ISBN manuale (test senza camera)
 """
 
+import os
 import sys
 import requests
 import cv2
+from dotenv import load_dotenv
 from pyzbar import pyzbar
+
+load_dotenv()
 
 
 # ──────────────────────────────────────────────
 # Lookup metadati da Open Library API
 # ──────────────────────────────────────────────
 
-def fetch_book_data(isbn: str) -> dict | None:
+def fetch_from_openlibrary(isbn: str) -> dict | None:
     url = f"https://openlibrary.org/api/books?bibkeys=ISBN:{isbn}&format=json&jscmd=data"
     try:
         response = requests.get(url, timeout=10)
@@ -34,8 +38,41 @@ def fetch_book_data(isbn: str) -> dict | None:
             return None
         return data[key]
     except requests.RequestException as e:
-        print(f"[ERRORE] Chiamata API fallita: {e}", file=sys.stderr)
+        print(f"[ERRORE] Open Library API fallita: {e}", file=sys.stderr)
         return None
+
+
+def fetch_from_google_books(isbn: str) -> dict | None:
+    api_key = os.environ.get("GOOGLE_BOOKS_API_KEY")
+    url = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{isbn}"
+    if api_key:
+        url += f"&key={api_key}"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        if data.get("totalItems", 0) == 0:
+            return None
+        vol = data["items"][0]["volumeInfo"]
+        # Normalizza al formato usato da print_book_data
+        return {
+            "title": vol.get("title", "N/D"),
+            "authors": [{"name": a} for a in vol.get("authors", [])],
+            "publish_date": vol.get("publishedDate", "N/D"),
+            "publishers": [{"name": vol["publisher"]}] if vol.get("publisher") else [],
+            "number_of_pages": vol.get("pageCount", "N/D"),
+        }
+    except requests.RequestException as e:
+        print(f"[ERRORE] Google Books API fallita: {e}", file=sys.stderr)
+        return None
+
+
+def fetch_book_data(isbn: str) -> dict | None:
+    dati = fetch_from_openlibrary(isbn)
+    if dati:
+        return dati
+    print("[INFO] Non trovato su Open Library, provo Google Books...", file=sys.stderr)
+    return fetch_from_google_books(isbn)
 
 
 def print_book_data(isbn: str, dati: dict):
@@ -76,17 +113,28 @@ def scan_from_camera():
 
     picam2 = Picamera2()
     config = picam2.create_video_configuration(
-        main={"format": "RGB888", "size": (1280, 720)}
+        main={"format": "RGB888", "size": (640, 480)}
     )
 
     picam2.configure(config)
     picam2.start()
 
     scanned_isbns = set()
+    frame_count = 0
+    barcodes = []
+
+    cv2.namedWindow("Scanner Libri  [q per uscire]", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Scanner Libri  [q per uscire]", 640, 480)
+    cv2.moveWindow("Scanner Libri  [q per uscire]", 0, 0)
 
     while True:
         frame = picam2.capture_array()
-        barcodes = pyzbar.decode(frame)
+
+        # Decodifica solo ogni 3 frame per risparmiare CPU
+        if frame_count % 3 == 0:
+            gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+            barcodes = pyzbar.decode(gray)
+        frame_count += 1
 
         for barcode in barcodes:
             isbn = barcode.data.decode("utf-8").strip()
@@ -98,6 +146,7 @@ def scan_from_camera():
 
             if isbn not in scanned_isbns:
                 scanned_isbns.add(isbn)
+                print("\a", end="", flush=True)
                 print(f"\n[SCAN] Barcode rilevato: {isbn}")
                 print("[INFO] Recupero metadati da Open Library...")
                 dati = fetch_book_data(isbn)
@@ -108,10 +157,6 @@ def scan_from_camera():
 
         display = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         cv2.imshow("Scanner Libri  [q per uscire]", display)
-        cv2.moveWindow("Scanner Libri  [q per uscire]", 0, 0)
-        cv2.resizeWindow("Scanner Libri  [q per uscire]", 640, 480)
-        
-        cv2.namedWindow("Scanner Libri  [q per uscire]", cv2.WINDOW_NORMAL)
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
