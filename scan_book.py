@@ -20,6 +20,8 @@ import cv2
 from dotenv import load_dotenv
 from pyzbar import pyzbar
 
+from db import init_db, save_book
+
 load_dotenv()
 
 
@@ -67,12 +69,15 @@ def fetch_from_google_books(isbn: str) -> dict | None:
         return None
 
 
-def fetch_book_data(isbn: str) -> dict | None:
+def fetch_book_data(isbn: str) -> tuple[dict, str] | None:
     dati = fetch_from_openlibrary(isbn)
     if dati:
-        return dati
+        return dati, "openlibrary"
     print("[INFO] Non trovato su Open Library, provo Google Books...", file=sys.stderr)
-    return fetch_from_google_books(isbn)
+    dati = fetch_from_google_books(isbn)
+    if dati:
+        return dati, "google"
+    return None
 
 
 def print_book_data(isbn: str, dati: dict):
@@ -102,7 +107,7 @@ def print_book_data(isbn: str, dati: dict):
 # Modalità camera: picamera2 + pyzbar
 # ──────────────────────────────────────────────
 
-def scan_from_camera():
+def scan_from_camera(conn):
     try:
         from picamera2 import Picamera2
     except ImportError:
@@ -149,9 +154,11 @@ def scan_from_camera():
                 print("\a", end="", flush=True)
                 print(f"\n[SCAN] Barcode rilevato: {isbn}")
                 print("[INFO] Recupero metadati da Open Library...")
-                dati = fetch_book_data(isbn)
-                if dati:
+                risultato = fetch_book_data(isbn)
+                if risultato:
+                    dati, source = risultato
                     print_book_data(isbn, dati)
+                    _save_to_db(conn, isbn, dati, source)
                 else:
                     print(f"[WARN] Libro non trovato per ISBN: {isbn}\n")
 
@@ -170,7 +177,25 @@ def scan_from_camera():
 # Modalità manuale: ISBN da tastiera (per test)
 # ──────────────────────────────────────────────
 
-def scan_from_input():
+def _save_to_db(conn, isbn: str, dati: dict, source: str):
+    """Estrae i campi dal dizionario metadati e salva nel database."""
+    autori = ", ".join(a["name"] for a in dati.get("authors", [])) or None
+    editore = ", ".join(p["name"] for p in dati.get("publishers", [])) or None
+    pagine = dati.get("number_of_pages")
+    pagine = int(pagine) if pagine and pagine != "N/D" else None
+    save_book(
+        conn,
+        isbn=isbn,
+        title=dati.get("title"),
+        authors=autori,
+        publish_date=dati.get("publish_date"),
+        publisher=editore,
+        pages=pagine,
+        source=source,
+    )
+
+
+def scan_from_input(conn):
     print("[MANUAL] Modalità inserimento ISBN manuale. Digita 'q' per uscire.\n")
     while True:
         try:
@@ -180,9 +205,11 @@ def scan_from_input():
         if isbn.lower() == "q" or not isbn:
             break
         print("[INFO] Recupero metadati da Open Library...")
-        dati = fetch_book_data(isbn)
-        if dati:
+        risultato = fetch_book_data(isbn)
+        if risultato:
+            dati, source = risultato
             print_book_data(isbn, dati)
+            _save_to_db(conn, isbn, dati, source)
         else:
             print(f"[WARN] Nessun dato trovato per: {isbn}\n")
 
@@ -192,8 +219,10 @@ def scan_from_input():
 # ──────────────────────────────────────────────
 
 if __name__ == "__main__":
+    conn = init_db()
     if "--manual" in sys.argv:
-        scan_from_input()
+        scan_from_input(conn)
     else:
-        scan_from_camera()
+        scan_from_camera(conn)
+    conn.close()
 
